@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+releases/
+*.agprofile
+*.agrecovery
+*.quota
+*.log
+instance.json
+refresh-settings.json
+.env
+.env.*
+
+# Generated previews and local-only packaging artifacts
+界面预览.html
+*.lnk
+*.wsb
