@@ -20,7 +20,7 @@ An independent Windows account manager and quota dashboard for Antigravity. Scan
 
 Get the Windows x64 installer, portable ZIP or standalone EXE from [GitHub Releases](https://github.com/sunyixiu/antigravity-local-switcher/releases). The EXE includes its runtime; no Python installation is needed. The installer can create desktop and Start menu shortcuts. Install, upgrade and uninstall preserve local account data.
 
-Current version: **0.7.1**. Windows binaries are not publisher code-signed.
+Current version: **0.7.2**. Windows binaries are not publisher code-signed.
 
 ## Usage
 
@@ -66,3 +66,7 @@ Tests use synthetic accounts. Native DPAPI integration tests skip when the envir
 Original implementation under the [MIT License](LICENSE). The Google icon comes from [SVG Logos](https://github.com/gilbarbara/logos), licensed under CC0 1.0; notices are bundled in `assets/`. Google trademarks belong to Google. This project does not represent Google.
 
 Internal quota protocol formats reference [Draculabo/AntigravityManager](https://github.com/Draculabo/AntigravityManager); its implementation code and dependencies are not copied or integrated.
+
+## v0.7.2 switching fix
+
+Quota refresh no longer persists the extra id_token, which could exceed the Windows 2560-byte credential limit. Oversized legacy snapshots are compacted and, when needed, stripped of that optional field before closing the client. Access and refresh grants are preserved, and the original encrypted snapshot is untouched. Irreducible records abort before closing the client. Rollback results and Windows error codes are reported explicitly; diagnostics exclude tokens and account details.

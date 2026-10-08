@@ -22,7 +22,7 @@ Windows 本地多账号管理与额度看板：扫描当前 Antigravity 登录�
 
 从 [GitHub Releases](https://github.com/sunyixiu/antigravity-local-switcher/releases) 下载 Windows x64 安装包或免安装 EXE。EXE 已包含运行时，无需 Python。安装包支持桌面和开始菜单快捷方式；安装、升级和卸载均保留本机账号数据。
 
-当前版本：**0.7.1**。
+当前版本：**0.7.2**。
 
 ## 使用流程
 
@@ -82,3 +82,7 @@ python packaging/build_windows.py --iscc 'C:\Program Files (x86)\Inno Setup 6\IS
 独立编写的代码以 [MIT](LICENSE) 许可开源。Google 图标来自 [SVG Logos](https://github.com/gilbarbara/logos)，原许可为 CC0 1.0，许可和来源放在 `assets/`。Google 商标属于 Google，本项目不代表 Google。
 
 内部额度协议参考 [Draculabo/AntigravityManager](https://github.com/Draculabo/AntigravityManager) 披露的接口格式；本项目未复制其实现代码，也未集成其依赖。
+
+## v0.7.2 切换修复
+
+修复额度刷新把额外的 id_token 存入快照后超出 Windows 凭据 2560 字节上限的问题。新刷新不再保存该字段；历史大快照在切换前压缩并按需移除官方登录不需要的 id_token，不改变 access token、refresh token 或账号身份。原加密快照保持不变。仍超限时会在关闭客户端前明确提示；回滚失败/成功和 Windows 系统错误有独立提示，诊断日志只记录事件类型和错误码。

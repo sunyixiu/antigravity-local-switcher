@@ -42,7 +42,7 @@ def main():
         if (root / name).is_file():
             shutil.copy2(root / name, portable / name)
     (portable / "安装说明.txt").write_text(
-        "Antigravity 本地账号切换器 0.7.1\n\n无需安装 Python。安装和卸载程序都保留本机账号快照。"
+        "Antigravity 本地账号切换器 0.7.2\n\n无需安装 Python。安装和卸载程序都保留本机账号快照。"
         "\n真实账号数据：%LOCALAPPDATA%\\AntigravityLocalSwitcher\n"
         "本工具为独立本地工具，不是 Google 官方应用。\n账号管理与加密存储在本机完成，无后门、隐蔽上传、遥测或作者服务器。\n身份确认、额度查询和授权刷新直接连接 Google，本地运行不等于完全离线。\nLocal account management; no backdoor, covert uploads, telemetry or author server. Google authentication and quota requests require network access.\n"
         "Google Antigravity 条款第 6 条禁止第三方工具访问服务。本工具额度查询和 OAuth 刷新存在账号暂停或终止风险。\n"

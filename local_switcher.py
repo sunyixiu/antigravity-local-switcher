@@ -20,6 +20,7 @@ TARGET = "gemini:antigravity"
 MAGIC = b"AGLOCAL1\x00"
 ENTROPY = b"AntigravityLocalSwitcher/v1"
 MAX_FILE = 100_000
+MAX_NATIVE_BLOB = 2560
 
 
 class LocalError(Exception):
@@ -95,6 +96,8 @@ class NativeStore:
     def write(self, record):
         validate_record(record)
         payload = base64.b64decode(record["blob"], validate=True)
+        if len(payload) > MAX_NATIVE_BLOB:
+            raise LocalError("登录数据超过 Windows 凭据的 2560 字节限制，未执行写入。")
         buffer = (C.c_ubyte * len(payload)).from_buffer_copy(payload)
         item = CREDENTIAL()
         item.type = 1
@@ -138,6 +141,35 @@ def validate_record(record):
             raise ValueError()
     except (ValueError, TypeError, KeyError, UnicodeError, AttributeError):
         raise LocalError("快照没有可用的 Google 刷新令牌，或格式不受支持；未做修改。") from None
+
+
+def prepare_native_record(record):
+    """Adapt oversized legacy quota snapshots without changing access/refresh grants.
+
+    The official OAuth token format does not require id_token, which quota refresh
+    previously added. Keep the encrypted snapshot intact; normalize only the
+    record destined for the Windows vault, before closing the official client.
+    """
+    validate_record(record)
+    raw = base64.b64decode(record["blob"], validate=True)
+    if len(raw) <= MAX_NATIVE_BLOB:
+        return record
+    text = raw.decode("utf-8")
+    wrapped = text.startswith("go-keyring-base64:")
+    if wrapped:
+        text = base64.b64decode(text.split(":", 1)[1], validate=True).decode("utf-8")
+    value = json.loads(text)
+    token = value.get("token", value)
+    def encode():
+        data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        return b"go-keyring-base64:" + base64.b64encode(data) if wrapped else data
+    raw = encode()
+    if len(raw) > MAX_NATIVE_BLOB:
+        token.pop("id_token", None)
+        raw = encode()
+    if len(raw) > MAX_NATIVE_BLOB:
+        raise LocalError("登录数据仍超过 Windows 凭据容量，未关闭客户端或修改登录。请在官方客户端重新登录并更新快照。")
+    return dict(record, blob=base64.b64encode(raw).decode("ascii"))
 
 
 def refresh_identity(record):
@@ -317,7 +349,7 @@ def replace_verified(store, target, previous):
             store.write(target)
         if store.read() != target:
             raise LocalError("切换后的凭据校验失败。")
-    except Exception:
+    except Exception as error:
         try:
             if previous is None:
                 store.delete()
@@ -327,7 +359,14 @@ def replace_verified(store, target, previous):
                 raise LocalError("恢复校验失败。")
         except Exception:
             raise LocalError("切换失败，自动恢复也未成功。请保持 Antigravity 关闭，使用“恢复切换前账号”；加密恢复文件仍保留。") from None
-        raise LocalError("切换失败，已恢复切换前的凭据。") from None
+        message = "切换失败，已恢复切换前的凭据。"
+        if isinstance(error, NativeError):
+            raise NativeError(message + f" Windows 凭据操作错误 {error.code}。", error.code) from None
+        if isinstance(error, LocalError):
+            message += " " + str(error)
+        else:
+            message += " 本地凭据操作发生异常。"
+        raise LocalError(message) from None
 
 
 def executable_path():
@@ -353,6 +392,7 @@ class Switcher:
 
     def switch(self, filename):
         selected = self.vault.load(filename)  # Decrypt/validate before closing or writing anything.
+        selected["credential"] = prepare_native_record(selected["credential"])
         executable = executable_path()
         close_antigravity()
         current = self.store.read()
@@ -376,7 +416,7 @@ class Switcher:
             raise LocalError("恢复文件格式无效。")
         target = saved["credential"]
         if target is not None:
-            validate_record(target)
+            target = prepare_native_record(target)
         executable = executable_path()
         close_antigravity()
         current = self.store.read()

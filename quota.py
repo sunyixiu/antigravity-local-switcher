@@ -147,10 +147,13 @@ def renew(record, request=post):
     token["expiry"] = datetime.fromtimestamp(time.time() + seconds, timezone.utc).isoformat().replace("+00:00", "Z")
     if "expiry_timestamp" in token:
         token["expiry_timestamp"] = int(time.time() + seconds)
-    for key in ("refresh_token", "id_token", "token_type"):
+    # id_token is not used by the official desktop token format; persisting it
+    # can exceed Windows credential capacity after an otherwise valid refresh.
+    token.pop("id_token", None)
+    for key in ("refresh_token", "token_type"):
         if isinstance(result.get(key), str) and result[key]:
             token[key] = result[key]
-    raw = json.dumps(value, ensure_ascii=False).encode("utf-8")
+    raw = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if wrapped:
         raw = ("go-keyring-base64:" + base64.b64encode(raw).decode("ascii")).encode("utf-8")
     return dict(record, blob=base64.b64encode(raw).decode("ascii"))

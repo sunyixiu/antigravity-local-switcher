@@ -26,7 +26,7 @@ import instance_control
 import account_discovery
 import current_login
 
-VERSION = "0.7.1"
+VERSION = "0.7.2"
 
 
 def demo_state():
@@ -263,7 +263,11 @@ class Application:
                 if not (self.directory / "before-switch.agrecovery").exists():
                     raise core.LocalError("还没有切换前的恢复快照。")
                 self.switcher.restore()
+            self.diagnose("account.switch_completed")
             return "本地凭据已切换，Antigravity 已启动。请在客户端确认账号。"
+        except Exception as error:
+            self.diagnose("account.switch_failed", error)
+            raise
         finally:
             with self.lock:
                 self.busy = False
