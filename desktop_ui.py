@@ -24,8 +24,9 @@ import refresh_policy
 import auto_refresh
 import instance_control
 import account_discovery
+import current_login
 
-VERSION = "0.7"
+VERSION = "0.7.1"
 
 
 def demo_state():
@@ -39,13 +40,13 @@ def demo_state():
         for (family, window), percentage in zip([("gemini", "weekly"), ("gemini", "5h"), ("thirdparty", "weekly"), ("thirdparty", "5h")], values):
             duration = (172800 if family == "gemini" else 302400) if window == "weekly" else 6240
             groups.append({"family": family, "window": window, "percentage": percentage, "reset": quota.datetime.fromtimestamp(now + duration, quota.timezone.utc).isoformat(), "group": family, "id": family + window, "name": window})
-        entries.append({"id": f"{index + 1:032x}.agprofile", "label": label, "recent": index == 0,
+        entries.append({"id": f"{index + 1:032x}.agprofile", "label": label, "recent": index == 0, "current": index == 1,
                         "quota": {"groups": groups, "models": [], "updated": now, "status": "已更新"}})
     # One expired demo window illustrates pending confirmation, without claiming a full reset.
     entries[0]["quota"]["updated"] = now - 120
     entries[0]["quota"]["groups"][1]["reset"] = quota.datetime.fromtimestamp(now - 30, quota.timezone.utc).isoformat()
     return {"version": VERSION, "demo": True, "busy": False, "progress": "", "profiles": entries,
-            "auto_refresh_hours": 4, "next_auto_at": now + 4 * 3600, "cooldown_remaining": 0}
+            "auto_refresh_hours": 4, "next_auto_at": now + 4 * 3600, "cooldown_remaining": 0, "current_login": {"status": "matched", "id": entries[1]["id"], "label": entries[1]["label"]}}
 
 
 class Application:
@@ -65,6 +66,8 @@ class Application:
         self.last_attempt = {}
         self.refreshing_ids = []
         self.active_refresh_id = None
+        self.switch_in_progress = False
+        self.current_login = current_login.CurrentLogin()
         if not demo:
             self.directory = Path(directory) if directory is not None else Path(os.environ["LOCALAPPDATA"]) / "AntigravityLocalSwitcher"
             self.vault = core.Vault(self.directory)
@@ -112,10 +115,16 @@ class Application:
                 cache = self.cached(filename)
                 profiles.append({"id": filename, "label": label, "recent": self.switcher.active == filename, "quota": cache,
                                  "refresh_after": self.account_cooldown(filename)})
+            current = ({"status": "switching", "message": "正在切换登录，完成后核对当前账号…"} if self.switch_in_progress else
+                       self.current_login.resolve(self.store, self.vault, [p["id"] for p in profiles], self.discovery.verified_binding))
+            for profile in profiles:
+                profile["current"] = current.get("id") == profile["id"] and current["status"] == "matched"
+                if profile["current"]:
+                    current["label"] = profile["label"]
             return {"version": VERSION, "demo": False, "busy": self.busy, "progress": self.progress, "profiles": profiles,
                     "refreshing_ids": list(self.refreshing_ids), "active_refresh_id": self.active_refresh_id,
                     "cooldown_remaining": self.requests.remaining(), "auto_refresh_hours": self.auto.hours,
-                    "next_auto_at": self.auto.next_run, "scan": dict(self.discovery.view)}
+                    "next_auto_at": self.auto.next_run, "scan": dict(self.discovery.view), "current_login": current}
 
     def account_cooldown(self, filename):
         attempted = self.last_attempt.get(filename)
@@ -159,6 +168,26 @@ class Application:
                 self.progress = self.discovery.view["message"]
                 self.diagnose("account.discovery_saved")
                 return "新账号已命名入库。"
+            if action == "delete":
+                filename = payload.get("id")
+                self.selected(filename)
+                self.vault.delete_profile(filename)
+                self.last_attempt.pop(filename, None)
+                self.current_login.bindings = {stamp: binding for stamp, binding in self.current_login.bindings.items() if binding[0] != filename}
+                self.discovery.completed = {key: binding for key, binding in self.discovery.completed.items() if binding[1] != filename}
+                if self.discovery.view.get("existing_id") == filename:
+                    self.discovery.view = {"status": "idle", "message": "账号已删除，需要保存当前登录时请重新扫描。"}
+                self.discovery.verified_binding = None
+                if self.switcher.active == filename:
+                    self.switcher.active = None
+                self.auto.reset_attempts = {key: value for key, value in self.auto.reset_attempts.items() if not key.startswith(filename + ":")}
+                try:
+                    self.auto.save()
+                except core.LocalError:
+                    self.diagnose("schedule.preference_write_failed")
+                    return "账号快照和额度缓存已删除；查询记录保存失败，请检查目录权限。Antigravity 登录保持不变。"
+                self.diagnose("account.deleted")
+                return "账号已从工具删除，Antigravity 当前登录保持不变。"
             if action == "rename":
                 filename = payload.get("id")
                 saved = self.selected(filename)
@@ -225,6 +254,7 @@ class Application:
             if action == "switch":
                 self.selected(payload.get("id"))
             self.busy = True
+            self.switch_in_progress = True
             self.progress = "正在请求 Antigravity 正常退出并切换账号…"
         try:
             if action == "switch":
@@ -237,6 +267,7 @@ class Application:
         finally:
             with self.lock:
                 self.busy = False
+                self.switch_in_progress = False
                 self.progress = ""
 
     def start_refresh(self, filenames, skipped=0, reason="手动刷新"):
@@ -308,6 +339,8 @@ class Application:
                     def renewed(record):
                         with self.lock:
                             self.vault.save(saved["label"], record, filename, identity=saved.get("identity"))
+                            self.current_login.rotated(filename, saved["credential"], record)
+                            saved["credential"] = record
                     result = quota.query(saved["credential"], request=self.requests.send, on_renew=renewed)
                     with self.lock:
                         self.vault.write(filename + ".quota", result)

@@ -237,6 +237,28 @@ class Vault:
         validate_record(value.get("credential"))
         return value
 
+    def delete_profile(self, filename):
+        saved = self.load(filename)
+        paths = [self.directory / filename, self.directory / (filename + ".quota")]
+        recovery = self.directory / "before-switch.agrecovery"
+        if recovery.exists():
+            value = self.read(recovery.name)
+            record = value.get("credential") if isinstance(value, dict) else None
+            if record is not None:
+                validate_record(record)
+                if refresh_identity(record) == refresh_identity(saved["credential"]):
+                    paths.append(recovery)
+        originals = {path: path.read_bytes() for path in paths if path.exists()}
+        removed = []
+        try:
+            for path in originals:
+                path.unlink()
+                removed.append(path)
+        except OSError:
+            for path in removed:
+                atomic_write(path, originals[path])
+            raise LocalError("删除失败，已恢复此前文件。请检查账号数据目录权限。") from None
+
     def profiles(self):
         result = []
         for path in sorted(self.directory.glob("*.agprofile")):

@@ -66,6 +66,7 @@ class DiscoveryTests(unittest.TestCase):
         before = (self.directory / filename).read_bytes()
         view = self.service.scan()
         self.assertEqual(view['status'], 'known')
+        self.assertIn('未检测到新账号', view['message'])
         self.assertEqual(view['existing_id'], filename)
         self.assertEqual(self.calls, [])
         self.assertEqual((self.directory / filename).read_bytes(), before)

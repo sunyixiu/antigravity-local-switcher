@@ -34,8 +34,10 @@ class Discovery:
         self.last_scan = None
         self.view = {"status": "idle", "message": "尚未扫描当前登录。"}
         self.completed = {}
+        self.verified_binding = None
 
     def scan(self):
+        self.verified_binding = None
         current = self.store.read()
         if not current:
             self.pending = None
@@ -59,7 +61,7 @@ class Discovery:
         if exact:
             filename, saved = exact
             identity = saved.get("identity", {})
-            self.view = {"status": "known", "message": "当前登录已入库：" + saved["label"], "existing_id": filename, "label": saved["label"], "email": identity.get("email", "")}
+            self.view = {"status": "known", "message": "未检测到新账号，当前登录已入库：" + saved["label"], "existing_id": filename, "label": saved["label"], "email": identity.get("email", "")}
             self.last_scan = self.clock()
             return self.view
         if unreadable:
@@ -82,11 +84,14 @@ class Discovery:
         known = next(((filename, saved) for filename, saved in records if saved.get("identity", {}).get("subject") == identity["subject"]), None)
         if known:
             filename, saved = known
-            self.view = {"status": "known", "message": "此 Google 账号已入库：" + saved["label"] + "。登录信息已变化，可在账号菜单更新快照。", "existing_id": filename, "label": saved["label"], "email": identity["email"]}
+            self.view = {"status": "known", "message": "未检测到新账号，此 Google 账号已入库：" + saved["label"] + "。登录信息已变化，可在账号菜单更新快照。", "existing_id": filename, "label": saved["label"], "email": identity["email"]}
         else:
             scan_id = uuid.uuid4().hex
             self.pending = {"scan_id": scan_id, "fingerprint": stamp, "record": record, "identity": identity, "created": self.clock()}
             self.view = {"status": "new", "message": "发现新账号，尚未保存。请确认邮箱、命名后添加。", "scan_id": scan_id, "email": identity["email"], "name": identity["name"]}
+        if self.view["status"] == "known":
+            filename = self.view["existing_id"]
+            self.verified_binding = (stamp, filename, fingerprint(self.vault.load(filename)["credential"]))
         self.last_scan = self.clock()
         return self.view
 
@@ -116,6 +121,7 @@ class Discovery:
         if (self.vault.directory / filename).exists():
             raise core.LocalError("添加请求标识已使用，请重新扫描。")
         self.vault.save(label.strip(), candidate["record"], filename, identity=candidate["identity"])
+        self.verified_binding = (candidate["fingerprint"], filename, fingerprint(candidate["record"]))
         self.completed[request_id] = (scan_id, filename)
         self.completed = dict(list(self.completed.items())[-30:])
         self.pending = None

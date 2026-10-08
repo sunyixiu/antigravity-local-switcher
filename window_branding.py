@@ -53,7 +53,7 @@ def brand_edge_window(url, icon_path):
                 return True
             title = C.create_unicode_buffer(length + 1)
             user.GetWindowTextW(hwnd, title, length + 1)
-            if marker not in title.value or "账号空间" not in title.value:
+            if marker not in title.value or "本地账号切换器" not in title.value:
                 return True
             pid = W.DWORD()
             user.GetWindowThreadProcessId(hwnd, C.byref(pid))

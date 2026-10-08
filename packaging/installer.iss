@@ -1,4 +1,4 @@
-﻿#define AppVersion "0.7.0"
+#define AppVersion "0.7.1"
 #define SourceRoot AddBackslash(SourcePath) + ".."
 #define DistRoot SourceRoot + "\dist\portable"
 #define OutputRoot SourceRoot + "\dist"
@@ -8,11 +8,11 @@ AppId={{0B164BF7-11A3-4E12-AC18-703295D8505D}
 #else
 AppId={{F1C2AB73-4974-4A4D-84AA-389E4BB98126}
 #endif
-AppName=Antigravity 本地账号空间
+AppName=Antigravity 本地账号切换器
 AppVersion={#AppVersion}
 AppPublisher=Independent local utility
 DefaultDirName={localappdata}\Programs\AntigravityLocalSwitcher
-DefaultGroupName=Antigravity 本地账号空间
+DefaultGroupName=Antigravity 本地账号切换器
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -20,7 +20,7 @@ MinVersion=10.0
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 OutputDir={#OutputRoot}
-OutputBaseFilename=AntigravityLocalSwitcher-Setup-v0.7
+OutputBaseFilename=AntigravityLocalSwitcher-Setup-v0.7.1
 SetupIconFile={#SourceRoot}\assets\app-icon.ico
 UninstallDisplayIcon={app}\AntigravityLocalSwitcher.exe
 Compression=lzma2
@@ -51,17 +51,19 @@ Source: "{#DistRoot}\licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversio
 
 Source: "{#DistRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#DistRoot}\SECURITY.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#DistRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#DistRoot}\README.en.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 #ifndef TestBuild
-Name: "{group}\Antigravity 本地账号空间"; Filename: "{app}\AntigravityLocalSwitcher.exe"; WorkingDir: "{app}"; IconFilename: "{app}\AntigravityLocalSwitcher.exe"
-Name: "{userdesktop}\Antigravity 账号空间"; Filename: "{app}\AntigravityLocalSwitcher.exe"; WorkingDir: "{app}"; IconFilename: "{app}\AntigravityLocalSwitcher.exe"; Tasks: desktopicon
+Name: "{group}\Antigravity 本地账号切换器"; Filename: "{app}\AntigravityLocalSwitcher.exe"; WorkingDir: "{app}"; IconFilename: "{app}\AntigravityLocalSwitcher.exe"
+Name: "{userdesktop}\Antigravity 本地账号切换器"; Filename: "{app}\AntigravityLocalSwitcher.exe"; WorkingDir: "{app}"; IconFilename: "{app}\AntigravityLocalSwitcher.exe"; Tasks: desktopicon
 Name: "{group}\卸载账号工具"; Filename: "{uninstallexe}"
 
 #endif
 
 [Run]
-Filename: "{app}\AntigravityLocalSwitcher.exe"; Description: "打开 Antigravity 账号空间"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\AntigravityLocalSwitcher.exe"; Description: "打开 Antigravity 本地账号切换器"; Flags: nowait postinstall skipifsilent
 
 [Code]
 function PrepareToInstall(var NeedsRestart: Boolean): String;

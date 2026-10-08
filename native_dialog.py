@@ -10,7 +10,7 @@ def show_error(message):
     user = system_dll("user32.dll")
     user.MessageBoxW.argtypes = [W.HWND, W.LPCWSTR, W.LPCWSTR, W.UINT]
     user.MessageBoxW.restype = C.c_int
-    user.MessageBoxW(None, message, "Antigravity 本地账号空间", 0x10)
+    user.MessageBoxW(None, message, "Antigravity 本地账号切换器", 0x10)
 
 
 class UpgradeProgress:
