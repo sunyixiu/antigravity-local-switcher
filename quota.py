@@ -47,6 +47,14 @@ def retry_after_seconds(value, now=None):
         return None
 
 
+class QueryStopped(QuotaError):
+    """Local account is no longer eligible; never retry or renew its grant."""
+
+
+class OfficialRefreshRequired(QuotaError):
+    """Wait for the official client to renew the local access token."""
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # Authorization-bearing requests must not be redirected to another site.
@@ -243,12 +251,14 @@ def window_summary(cache, family, window):
     return f"{percentage:g}%" if percentage is not None else "未知"
 
 
-def query(record, request=post, on_renew=lambda record: None):
+def query(record, request=post, on_renew=lambda record: None, allow_renew=False):
     original = record
     _, token, _ = decode(record)
     due = expiration(token)
     refreshed = False
-    if not token.get("access_token") or (due is not None and due <= time.time() + 60):
+    if not token.get("access_token") or (due is not None and due <= time.time() + 30):
+        if not allow_renew:
+            raise OfficialRefreshRequired("等待 Antigravity 更新登录授权；请打开官方客户端完成登录后再查询。", 401)
         record = renew(record, request)
         on_renew(record)  # Keep successfully refreshed credentials even if the quota endpoint fails.
         refreshed = True
@@ -271,7 +281,7 @@ def query(record, request=post, on_renew=lambda record: None):
             if isinstance(subscription, dict) and isinstance(subscription.get("id"), str):
                 tier = subscription["id"][:100]
         except QuotaError as error:
-            if error.status in (401, 429):
+            if isinstance(error, QueryStopped) or error.status in (401, 429):
                 raise
         payload = {"project": project} if isinstance(project, str) and project else {}
 
@@ -296,13 +306,13 @@ def query(record, request=post, on_renew=lambda record: None):
         try:
             groups = endpoint_data(GROUP_URLS, parse_groups)
         except QuotaError as error:
-            if error.status == 401:
+            if isinstance(error, QueryStopped) or error.status == 401:
                 raise
             group_error = str(error)
         try:
             models = endpoint_data(MODEL_URLS, parse_models)
         except QuotaError as error:
-            if error.status == 401:
+            if isinstance(error, QueryStopped) or error.status == 401:
                 raise
             model_error = error
         if not groups and not models:
@@ -318,8 +328,10 @@ def query(record, request=post, on_renew=lambda record: None):
     try:
         result = fetch(record)
     except QuotaError as error:
-        if error.status != 401 or refreshed:
+        if isinstance(error, QueryStopped) or error.status != 401 or refreshed:
             raise
+        if not allow_renew:
+            raise OfficialRefreshRequired("Google 未接受当前访问令牌，等待 Antigravity 更新授权；工具不会自行续期。", 401) from None
         record = renew(original, request)
         on_renew(record)
         result = fetch(record)

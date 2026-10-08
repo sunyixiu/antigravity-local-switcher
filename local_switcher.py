@@ -302,6 +302,25 @@ class Vault:
         return result
 
 
+def capture_matching_snapshot(vault, current):
+    """Capture the final official credential only for a unique matching grant."""
+    if current is None:
+        return None
+    validate_record(current)
+    identity = refresh_identity(current)
+    matches = []
+    for filename, _ in vault.profiles():
+        saved = vault.load(filename)
+        if refresh_identity(saved["credential"]) == identity:
+            matches.append((filename, saved))
+    if len(matches) != 1:
+        return None
+    filename, saved = matches[0]
+    if saved["credential"] != current:
+        vault.save(saved["label"], current, filename, identity=saved.get("identity"))
+    return filename
+
+
 def antigravity_pids():
     command = Path(os.environ["SystemRoot"]) / "System32" / "tasklist.exe"
     result = subprocess.run([str(command), "/FI", "IMAGENAME eq Antigravity.exe", "/FO", "CSV", "/NH"], capture_output=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
@@ -399,13 +418,9 @@ class Switcher:
         if current is not None:
             validate_record(current)
         self.vault.write("before-switch.agrecovery", {"version": 1, "credential": current})
-        # Refresh a known active snapshot only when its refresh token matches the current login.
-        if self.active and current:
-            old = self.vault.load(self.active)
-            if refresh_identity(old["credential"]) == refresh_identity(current):
-                self.vault.save(old["label"], current, self.active)
-        if filename == self.active and current and refresh_identity(selected["credential"]) == refresh_identity(current):
-            selected["credential"] = current
+        matched = capture_matching_snapshot(self.vault, current)
+        if filename == matched:
+            selected["credential"] = prepare_native_record(current)
         replace_verified(self.store, selected["credential"], current)
         self.active = filename
         launch(executable)
@@ -420,6 +435,7 @@ class Switcher:
         executable = executable_path()
         close_antigravity()
         current = self.store.read()
+        capture_matching_snapshot(self.vault, current)
         replace_verified(self.store, target, current)
         self.active = None
         launch(executable)

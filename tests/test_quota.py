@@ -67,30 +67,21 @@ class QuotaTests(unittest.TestCase):
         self.assertEqual(calls, [quota.CONTEXT_URL, quota.GROUP_URLS[0], quota.MODEL_URLS[0]])
         self.assertEqual(saved, [])
 
-    def test_expired_token_saved_before_failed_quota(self):
+    def test_expired_token_waits_for_official_client_without_network_or_renewal(self):
         saved = []
-        def request(url, payload, **kwargs):
-            if url == quota.TOKEN_URL:
-                return {'access_token': 'synthetic-new', 'refresh_token': 'synthetic-rotated', 'expires_in': 3600}
-            if url == quota.CONTEXT_URL:
-                return {}
-            raise quota.QuotaError('Throttled', 429)
-        with self.assertRaises(quota.QuotaError):
-            quota.query(credential(True), request, saved.append)
-        self.assertEqual(len(saved), 1)
-        self.assertEqual(quota.decode(saved[0])[1]['refresh_token'], 'synthetic-rotated')
+        with self.assertRaises(quota.OfficialRefreshRequired):
+            quota.query(credential(True), lambda *a, **k: self.fail('Expired token must not reach Google'), saved.append)
+        self.assertEqual(saved, [])
 
-    def test_unauthorized_refreshes_once_then_retries(self):
+    def test_unauthorized_waits_for_official_client_without_oauth_retry(self):
         calls = []
         def request(url, payload, **kwargs):
             calls.append(url)
-            if url == quota.TOKEN_URL:
-                return {'access_token': 'synthetic-new', 'expires_in': 3600}
-            if kwargs.get('access') == 'synthetic-access':
-                raise quota.QuotaError('Expired', 401)
-            return {} if url == quota.CONTEXT_URL else response()
-        self.assertTrue(quota.query(credential(), request)['models'])
-        self.assertEqual(calls.count(quota.TOKEN_URL), 1)
+            raise quota.QuotaError('Expired', 401)
+        with self.assertRaises(quota.OfficialRefreshRequired):
+            quota.query(credential(), request)
+        self.assertEqual(calls, [quota.CONTEXT_URL])
+        self.assertNotIn(quota.TOKEN_URL, calls)
 
     def test_project_forbidden_retries_without_project(self):
         payloads = []

@@ -2,47 +2,51 @@
 
 [简体中文](README.md) · [English](README.en.md)
 
-An independent Windows account manager and quota dashboard for Antigravity. Scan the official client's current Google login, verify the email, name and save it, view saved accounts' Gemini / Claude / GPT quota, and switch the local login.
+A Windows local account switcher and quota dashboard. **Only the account currently signed into a running official Antigravity client is queried. Other accounts use encrypted caches and local recovery estimates.** Version: **0.8.0**.
 
-**Unofficial software with service-terms risks.** Clause 6 of the [Google Antigravity Additional Terms](https://antigravity.google/terms) prohibits third-party tools accessing the service and describes possible suspension or termination of Antigravity / Gemini CLI accounts. This tool's internal quota queries and OAuth refresh carry that risk. The terms do not separately clarify local snapshot restoration. Open source is not Google authorization. See the bilingual [security and service-terms notice](SECURITY.md).
+**Unofficial, with service-terms risks.** Clause 6 of the [Antigravity Additional Terms](https://antigravity.google/terms) restricts third-party access and describes potential Antigravity / Gemini CLI suspension or termination. Identity and quota calls still originate from this utility. Limiting them to the current account does not make its network fingerprint identical to the official client or grant Google authorization. See [SECURITY.md](SECURITY.md).
 
 ## Local execution and privacy
 
-**Account management and credential storage run locally. This version contains no backdoor, covert upload, telemetry or remote-control functionality. There is no author-operated server. Login credentials, snapshots, project files and chat histories are not uploaded to the author or other third parties.**
+Account snapshots and quota caches stay on this computer, encrypted with current-user Windows DPAPI. There are no backdoors, covert uploads, telemetry, remote control, ads, remote fonts/CDNs or author-operated servers. Credentials, snapshots, projects and chat histories are not sent to the author or third parties.
 
-- Snapshots, recovery backups and quota caches use Windows DPAPI encryption for the current Windows user. Data stays in `%LOCALAPPDATA%\AntigravityLocalSwitcher`.
-- The UI connects only to the local `127.0.0.1` server. It receives account and quota projections, never Google access or refresh tokens. Local actions validate the session and request origin.
-- Identity verification, quota queries and OAuth refresh connect directly to allowlisted Google HTTPS endpoints, sending only the tokens required by those protocols. **Local does not mean offline**: "no uploads" means no covert collection or transfers to the author or third parties; it does not exclude Google authentication requests.
-- No ads, analytics, remote fonts, CDNs, automatic code-download execution, or model-request reverse proxy.
-- The implementation is open for review. These statements are not an independent security certification or an absolute safety guarantee. Malware running as the same Windows user may still access credentials or DPAPI. Service-terms risks are separate.
+The browser UI connects only to the loopback server and never receives Google tokens. Current-account identity and quota requests connect directly to allowlisted Google HTTPS endpoints using the necessary access token. Local does not mean offline; open source and encryption are not absolute security guarantees against same-user malware.
 
-## Download
+## Download and use
 
-Get the Windows x64 installer, portable ZIP or standalone EXE from [GitHub Releases](https://github.com/sunyixiu/antigravity-local-switcher/releases). The EXE includes its runtime; no Python installation is needed. The installer can create desktop and Start menu shortcuts. Install, upgrade and uninstall preserve local account data.
+Download the Windows x64 installer, portable ZIP or EXE from [Releases](https://github.com/sunyixiu/antigravity-local-switcher/releases). No Python installation is required. Binaries are not publisher code-signed.
 
-Current version: **0.7.2**. Windows binaries are not publisher code-signed.
+1. Sign in through the official Antigravity client.
+2. Open this tool; it scans the current login, or click **扫描账号** (Scan account).
+3. New accounts show the verified email and are saved only after naming and confirmation. Existing accounts report **未检测到新账号** (No new account detected).
+4. The running current account has a **当前使用** label. Its card or **刷新当前账号** (Refresh current account) can query quota.
+5. Inactive cards show **离线缓存** (Offline cache). They never query Google; switch to them before refreshing. Legacy batch-refresh routes also query only the current account.
+6. Save your work and click **切换账号**. The tool closes the official client normally, captures its final matching credentials, restores the target snapshot and relaunches the client. It can launch a closed client too.
+7. Card menus support renaming, explicit snapshot update and confirmed deletion. Deletion removes the chosen snapshot/cache/schedule records and matching recovery backup, is irreversible, and does not sign out the official client.
 
-## Usage
+## Queries and snapshot synchronization
 
-1. Sign into your Google account in the official Antigravity desktop client.
-2. Open the switcher; it scans the current login automatically. You can also click **扫描账号** (Scan account).
-3. For a new login, verify the displayed email, enter a name, and click **命名并添加** (Name and add). Scanning alone does not save a snapshot. An already-saved login is explicitly reported as **未检测到新账号** (No new account detected).
-4. The currently matched account has a **当前使用** (Currently in use) label and highlighted card. This checks the actual local credential, not the last account clicked. External login changes are checked during the UI's five-second polling. Unmatched or unreadable logins are shown explicitly; scan to confirm them.
-5. Click **刷新额度** (Refresh quota) on one card, or **刷新全部** (Refresh all) to query saved accounts sequentially. Quota can be queried while another account is active.
-6. Save your work and click **切换账号** (Switch account). The tool requests normal Antigravity exit, restores the chosen login and relaunches the official client. It aborts if the client cannot exit normally.
-7. Card menus support renaming and updating the login snapshot. Renaming preserves credentials and quota history. **删除账号** (Delete account) asks for confirmation and removes the selected snapshot, quota cache, schedule records and a matching pre-switch recovery backup. Deletion is irreversible and does not sign out the official client.
+Manual, scheduled, reset-time, post-login and tool-controlled pre-switch checks target only the matched account in the running client. Scheduling supports three/four hours or off. Off disables automatic network alignment while local snapshot sync and recovery projection continue.
 
-Scanning checks only the official client's current local login, not all browser Google accounts. The current login is rechecked before enrollment to prevent saving a different account after a login change. Older snapshots are primarily matched by their refresh grant; reauthorization with a different grant may require scanning or updating the snapshot.
+After request pacing and immediately before dispatch, the utility rechecks the login and process state. An external switch, sign-out or close stops subsequent requests. A request already sent cannot be recalled; its result is discarded if the account has changed before storage.
 
-## Quota and scheduling
+The utility does not renew OAuth grants. It never refreshes inactive accounts to keep them alive. Missing, expired or rejected access tokens wait for the official client to update authorization. Latest official credentials are read rather than writing utility-generated tokens back to Windows.
 
-Gemini and Claude/GPT weekly and five-hour windows are displayed separately, with reset countdowns and UTC+8 reset dates. Model details are available separately. Shared quotas are not added together or translated into precise request counts.
+The backend observes local credentials about every five seconds. A uniquely matched refresh grant permits updating that snapshot; unknown/rotated grants require explicit scanning, never guessing from the last clicked account. A controlled switch reads again after normal client exit. External shutdowns can only retain the last observed state, not every instantaneous change.
 
-Choose automatic checks every three or four hours, or turn them off. At a reset deadline, the UI shows pending confirmation and queries again; it never invents a 100% recovery. Failed requests retain the previous values and timestamp. Queries are serialized, repeated clicks have cooldowns, and HTTP 429 triggers backoff. These controls do not eliminate service-terms risks.
+## Offline recovery estimates
 
-The quota interfaces are unpublished and can change. Missing data is shown as unknown. Expired authorization requires signing in through the official client and updating the snapshot. OAuth client configuration is read from the locally installed official binary rather than embedded in this source or releases; unknown configurations stop refresh.
+Gemini and Claude/GPT weekly and five-hour windows use their separate cached Google resetTime values.
 
-## Run, test and build
+Example: the last confirmed quota is 35% with a reset in one hour. At that deadline, the inactive card displays **100% — estimated recovery**, without a Google request. Details retain the last confirmed 35%, query time and reset time. On the next login, the actual result replaces the estimate.
+
+Estimates are presentation only and do not overwrite encrypted confirmed caches. Unknown values remain unknown. Online accounts wait for an actual query after reset. Future windows are not invented by repeatedly adding five hours or seven days. Other-device usage and provider rule changes can make actual quota differ.
+
+## Data, compatibility and builds
+
+Data stays in `%LOCALAPPDATA%\AntigravityLocalSwitcher`. Upgrade/uninstall preserve it unless an account is explicitly deleted. Current support targets official Windows `gemini:antigravity` credentials, not old SQLite storage, other CLIs, project files or chat histories. Unpublished quota endpoints can change. Failed requests preserve prior data. Legacy oversized snapshots are compacted and stripped of optional id_token when necessary before writes, preserving access/refresh grants within Windows' 2560-byte limit.
+
+Runtime uses Python's standard library and native Windows APIs, with an Edge app window or default browser.
 
 ```powershell
 python local_switcher.py
@@ -51,22 +55,12 @@ python -m pip install -r requirements-build.txt
 python packaging/build_windows.py
 ```
 
-Runtime uses the Python standard library and native Windows APIs. The local UI prefers an Edge app window and otherwise uses the default browser. This version supports the Windows `gemini:antigravity` credential storage, not older SQLite login storage or other CLI credentials.
-
-For an installer, provide Inno Setup 6, including `ChineseSimplified.isl`:
+Installers require Inno Setup 6 and ChineseSimplified.isl:
 
 ```powershell
 python packaging/build_windows.py --iscc 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-Tests use synthetic accounts. Native DPAPI integration tests skip when the environment cannot support them. Build outputs are in `dist/` and contain no account data.
+Tests use synthetic accounts and skip unsupported native integration checks. Build output is in dist and contains no account data.
 
-## License and credits
-
-Original implementation under the [MIT License](LICENSE). The Google icon comes from [SVG Logos](https://github.com/gilbarbara/logos), licensed under CC0 1.0; notices are bundled in `assets/`. Google trademarks belong to Google. This project does not represent Google.
-
-Internal quota protocol formats reference [Draculabo/AntigravityManager](https://github.com/Draculabo/AntigravityManager); its implementation code and dependencies are not copied or integrated.
-
-## v0.7.2 switching fix
-
-Quota refresh no longer persists the extra id_token, which could exceed the Windows 2560-byte credential limit. Oversized legacy snapshots are compacted and, when needed, stripped of that optional field before closing the client. Access and refresh grants are preserved, and the original encrypted snapshot is untouched. Irreducible records abort before closing the client. Rollback results and Windows error codes are reported explicitly; diagnostics exclude tokens and account details.
+Original implementation under [MIT](LICENSE). Google icons come from [SVG Logos](https://github.com/gilbarbara/logos), CC0 1.0, with notices in assets. Google owns its trademarks; this project is independent. Internal protocol formats reference [Draculabo/AntigravityManager](https://github.com/Draculabo/AntigravityManager), without copying its implementation or integrating its dependencies.

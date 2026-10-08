@@ -23,7 +23,7 @@ class RequestGate:
     def remaining(self):
         return max(0, math.ceil(self.cooldown_until - self.clock()))
 
-    def send(self, url, payload, **options):
+    def send(self, url, payload, before_send=None, **options):
         with self.lock:
             remaining = self.remaining()
             if remaining:
@@ -32,6 +32,9 @@ class RequestGate:
                 gap = REQUEST_INTERVAL - (self.clock() - self.last_started)
                 if gap > 0:
                     self.wait(gap)
+            # Recheck after pacing; queued requests must follow the actual login.
+            if before_send is not None:
+                options.update(before_send() or {})
             self.last_started = self.clock()
             try:
                 return self.sender(url, payload, **options)

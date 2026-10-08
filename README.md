@@ -2,87 +2,72 @@
 
 [简体中文](README.md) · [English](README.en.md)
 
-Windows 本地多账号管理与额度看板：扫描当前 Antigravity 登录，确认命名后保存；查看已保存账号的 Gemini / Claude / GPT 额度，并在本机切换登录。
+Windows 本地多账号切换与额度看板。**只查询当前运行的 Antigravity 登录账号，其他账号使用加密缓存和本地恢复推算。** 当前版本：**0.8.0**。
 
-**独立非官方工具。当前实现存在 Google 服务条款风险。** [Antigravity 官方附加条款](https://antigravity.google/terms)第 6 条明确禁止第三方工具访问该服务，并说明可能暂停或终止 Antigravity / Gemini CLI 账号。本工具直接调用内部额度接口、刷新 OAuth 令牌，不能保证符合条款；仅本地恢复登录快照是否允许，条款也没有单独澄清。开源不代表 Google 许可。详情见 [SECURITY.md](SECURITY.md)。
+**独立非官方工具，仍有服务条款风险。** [Google Antigravity 附加条款](https://antigravity.google/terms)第 6 条限制第三方工具访问服务，可能导致 Antigravity / Gemini CLI 账号暂停或终止。当前身份和额度查询仍由本工具向 Google 发出；仅查询当前账号不代表请求指纹与官方一致，也不代表 Google 授权。详见 [中英文安全说明](SECURITY.md)。
 
-## 本地运行与隐私承诺
+## 本地运行与隐私
 
-**账号管理与凭据存储完全在本机完成。项目不包含后门、隐藏上传、遥测或远程控制功能，不设置作者服务器，也不把登录凭据、账号快照、项目文件或聊天记录上传给作者或第三方。**
+账号管理、登录快照和额度缓存保存在本机，使用 Windows 当前用户 DPAPI 加密。项目不包含后门、隐蔽上传、遥测、远程控制或作者服务器，不向作者或第三方发送凭据、快照、项目文件或聊天记录。界面只连接本机 `127.0.0.1`，不接收 Google 令牌，没有远程字体、CDN 或广告。
 
-- 账号快照和额度缓存使用 Windows 当前用户 DPAPI 加密，保存在 `%LOCALAPPDATA%\AntigravityLocalSwitcher`。
-- 界面只连接本机 `127.0.0.1`，不接收 Google 登录令牌；本地操作校验会话和请求来源。
-- 身份确认、额度查询和授权刷新会直接连接指定 Google HTTPS 接口，并按 Google 协议发送必要的令牌。**本地工具不等于完全离线**，这里的“无上传”指没有隐蔽收集或向作者/第三方上传数据。
-- 没有远程字体、CDN、广告、使用分析、自动下载执行代码或模型请求反向代理。
-- 源码公开，欢迎审查。以上描述本版本的实现；开源和加密不能保证绝对安全，同一 Windows 用户权限的恶意程序仍可能读取凭据。服务条款风险也独立存在。
+当前账号的身份确认和额度查询会直接连接固定允许的 Google HTTPS 接口，发送必要访问令牌。**本地不等于离线，公开源码和加密也不等于绝对安全。** 同一 Windows 用户权限的恶意软件仍属于安全边界。
 
-详情见 [中英文安全与网络说明](SECURITY.md)。
+## 下载与使用
 
-## 下载
+从 [GitHub Releases](https://github.com/sunyixiu/antigravity-local-switcher/releases) 下载 Windows x64 安装包、免安装 ZIP 或 EXE，无需 Python。程序尚未进行发布者代码签名。
 
-从 [GitHub Releases](https://github.com/sunyixiu/antigravity-local-switcher/releases) 下载 Windows x64 安装包或免安装 EXE。EXE 已包含运行时，无需 Python。安装包支持桌面和开始菜单快捷方式；安装、升级和卸载均保留本机账号数据。
+1. 在官方 Antigravity 客户端正常登录。
+2. 打开工具自动扫描当前登录；也可点 **扫描账号**。
+3. 新账号显示邮箱，用户命名确认后才入库；已有账号提示 **未检测到新账号，当前登录已入库**。
+4. 当前运行账号显示 **当前使用**；它的卡片和顶部 **刷新当前账号** 可以查询。
+5. 其他账号显示 **离线缓存**，只能查看本地结果和预计恢复，切换后再查询。旧版本的批量刷新 API 也只查询当前账号。
+6. 保存编辑中的工作后点 **切换账号**。工具正常关闭官方客户端、保存最终匹配快照、恢复目标凭据并重新启动。客户端没打开时也会启动。
+7. 卡片 **···** 支持重命名、手动更新快照、确认删除。删除清除快照、额度缓存、查询记录和匹配的恢复备份，不退出官方客户端登录，无法撤销。
 
-当前版本：**0.7.2**。
+## 当前账号查询与快照同步
 
-## 使用流程
+- 手动、定时、恢复到期、登录后和工具控制的切换前对齐，都只查询当前正在运行且与快照匹配的账号。
+- 定时查询可设为每 3 或 4 小时，或关闭。关闭后不自动联网对齐；仍在本地同步匹配快照、计算离线恢复。
+- 每次请求在限频等待结束后再次核对当前登录和客户端运行状态。外部换号、退出登录或关闭客户端后停止后续请求；已发出的请求无法撤回，返回时已换号的结果不会入库。
+- 工具不自行续期 OAuth，不使用离线快照的 refresh token 去 Google 换取 access token。当前访问令牌过期或被拒绝时等待官方 Antigravity 更新，再读取最新授权。
+- 后台约每 5 秒检查登录区，匹配同一刷新授权时自动更新快照。新授权无法可靠确认身份时要求扫描，绝不根据“最后点击账号”猜测归属。
+- 工具控制的切换会在退出前同步，并在正常退出后再次读取最终凭据；外部关闭或强制结束只能保留最后一次观察到的状态，不能承诺捕捉每个瞬间。
 
-1. 在 Antigravity 官方客户端正常登录自己的 Google 账号。
-2. 打开工具，自动扫描当前登录；也可以点顶部 **扫描账号**。
-3. 发现未保存账号时显示确认后的邮箱，用户命名后点 **命名并添加** 才入库。
-4. 已保存账号会显示 **未检测到新账号，当前账号已入库**，避免重复录入。未登录和扫描失败也有独立提示。
-5. 每张卡片可独立刷新额度；顶部 **刷新全部** 按顺序查询。
-6. 保存编辑中的工作，再点卡片 **切换账号**。工具请求 Antigravity 正常退出，恢复目标登录凭据并重启客户端。
+## 离线额度计算
 
-扫描只检测 Antigravity 当前登录，不枚举浏览器中的所有 Google 账号。已保存账号可以在未使用时查询额度。扫描期间不会自动创建账号快照；确认入库前会重新检查当前登录，防止用户已切到其他账号。
+Gemini 和 Claude/GPT 的五小时、每周窗口独立处理，直接使用上次 Google 返回的 `resetTime`，不从点击时间猜起点。
 
-## 功能
+例如：账号离线时剩余 **35%**、一小时后重置。到该时间显示 **100% · 预计已恢复**，不查询 Google；详情保留 **上次确认 35%**、查询时间和原恢复时间。再次登录后以实际查询覆盖预计值。
 
-- **当前使用账号**：独立标签和卡片高亮，核对实际本地登录，约每 5 秒检查官方客户端换号或退出登录。未匹配或读取失败时明确提示，不把最近操作当作当前账号。
+预计值只存在于界面投影，不覆盖原始加密额度缓存。未知额度或缺失恢复时间保持未知；当前在线账号到期仍等待查询确认。不会在原时间上循环添加 5 小时或 7 天来虚构后续窗口。若同一账号在其他设备使用、Google 调整规则，实际额度可能与预计不同。
 
-- 当前登录自动扫描、新账号确认命名、已有账号提示。
-- Windows 用户 DPAPI 加密快照，切换前恢复备份及写入后核对。
-- 账号重命名、登录快照更新、确认删除；删除清除所选快照、额度缓存和匹配的切换前恢复备份，Antigravity 当前登录保持不变。
-- Gemini、Claude/GPT 的每周与五小时窗口分别显示，模型详情独立查看。
-- 每 3/4 小时定时查询、重置倒计时、到期后排队查询确认；不会直接把旧百分比改为 100%。
-- 串行请求、账号查询间隔、重复点击冷却及 429 限流退避。
-- Windows 单文件 EXE、每用户安装包、透明 Google 图标。
+## 数据位置与兼容性
 
-额度接口未公开且可能变化。缺失值显示未知；查询失败保留旧时间和旧数据。账号授权失效时需要在官方客户端重新登录并更新快照。OAuth 刷新从本机官方客户端读取兼容的桌面配置，源码和发布包不内置客户端密钥；未安装或新版配置不兼容时会提示停止刷新。
+数据在 `%LOCALAPPDATA%\AntigravityLocalSwitcher`，与源码和安装目录分离。升级和卸载保留数据，除非用户在工具中明确删除账号。
 
-## 运行源码
+支持使用 Windows 凭据目标 `gemini:antigravity` 的官方桌面版本，不覆盖旧 SQLite 登录、其他 CLI、项目或聊天目录。额度接口未公开且可能变化；缺失值显示未知，查询失败保留上次结果。历史大快照切换前按需压缩并移除多余 `id_token`，保持 access/refresh token 不变，以满足 Windows 2560 字节限制。
+
+## 源码、测试与构建
+
+运行时仅使用 Python 标准库及 Windows 原生 API，界面优先 Edge 应用窗口，缺失时使用默认浏览器。
 
 ```powershell
 python local_switcher.py
-```
-
-只使用 Python 标准库和 Windows 原生 API。界面通过本机回环地址显示，优先使用 Edge 应用窗口。当前支持使用 Windows 凭据目标 `gemini:antigravity` 的桌面版本；不覆盖旧版 SQLite 存储、远程机器或其他 CLI 的账号状态。
-
-## 测试与构建
-
-```powershell
 python -m unittest discover -s tests
 python -m pip install -r requirements-build.txt
 python packaging/build_windows.py
 ```
 
-生成安装包需 Inno Setup 6 编译器（以及 ChineseSimplified.isl）：
+安装包需 Inno Setup 6 和 ChineseSimplified.isl：
 
 ```powershell
 python packaging/build_windows.py --iscc 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 ```
 
-测试使用虚构账号；原生 DPAPI 集成测试在当前登录环境不支持时跳过。构建输出在 `dist/`，不包含真实账号数据。
-
-## 数据与隐私
-
-账号数据位于 `%LOCALAPPDATA%\AntigravityLocalSwitcher`，与源码和安装目录分离。仓库忽略 `.agprofile`、`.agrecovery`、`.quota`、日志和运行配置。浏览器界面不接收令牌，没有作者服务器和分析上报。Google 查询的目的、权限边界及服务条款风险详见 [SECURITY.md](SECURITY.md)。
+测试使用虚构账号；不支持原生 DPAPI 的环境会跳过对应检查。输出在 `dist/`，不包含账号数据。
 
 ## 许可与致谢
 
-独立编写的代码以 [MIT](LICENSE) 许可开源。Google 图标来自 [SVG Logos](https://github.com/gilbarbara/logos)，原许可为 CC0 1.0，许可和来源放在 `assets/`。Google 商标属于 Google，本项目不代表 Google。
+原创代码使用 [MIT](LICENSE)。Google 图标来自 [SVG Logos](https://github.com/gilbarbara/logos)，CC0 1.0 许可和来源放在 `assets/`。Google 商标属于 Google，项目不代表 Google。
 
-内部额度协议参考 [Draculabo/AntigravityManager](https://github.com/Draculabo/AntigravityManager) 披露的接口格式；本项目未复制其实现代码，也未集成其依赖。
-
-## v0.7.2 切换修复
-
-修复额度刷新把额外的 id_token 存入快照后超出 Windows 凭据 2560 字节上限的问题。新刷新不再保存该字段；历史大快照在切换前压缩并按需移除官方登录不需要的 id_token，不改变 access token、refresh token 或账号身份。原加密快照保持不变。仍超限时会在关闭客户端前明确提示；回滚失败/成功和 Windows 系统错误有独立提示，诊断日志只记录事件类型和错误码。
+内部额度协议参考 [Draculabo/AntigravityManager](https://github.com/Draculabo/AntigravityManager) 披露的格式，未复制其实现代码或集成依赖。

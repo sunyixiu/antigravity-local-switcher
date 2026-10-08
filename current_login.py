@@ -20,7 +20,12 @@ class CurrentLogin:
 
     def resolve(self, store, vault, filenames, verified_binding=None):
         try:
-            current = store.read()
+            return self.resolve_record(store.read(), vault, filenames, verified_binding)
+        except (core.LocalError, OSError, ValueError, TypeError, KeyError):
+            return {'status': 'error', 'message': '当前登录暂时无法核对，请检查本地凭据或重新扫描。'}
+
+    def resolve_record(self, current, vault, filenames, verified_binding=None):
+        try:
             if current is None:
                 return {'status': 'signed-out', 'message': 'Antigravity 当前未登录。'}
             stamp = account_discovery.fingerprint(current)

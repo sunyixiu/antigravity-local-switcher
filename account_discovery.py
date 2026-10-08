@@ -69,17 +69,18 @@ class Discovery:
         _, token, _ = quota.decode(current)
         record = current
         due = quota.expiration(token)
-        refreshed = False
         if not token.get("access_token") or (due is not None and due < time.time() + 30):
-            record = quota.renew(current, self.request)
-            refreshed = True
+            raise core.LocalError("等待 Antigravity 更新当前登录授权，请打开官方客户端后重新扫描；工具不自行续期。")
         try:
-            profile = self.request(USER_INFO, None, access=quota.decode(record)[1]["access_token"], method="GET")
+            profile = self.request(USER_INFO, None, access=token["access_token"], method="GET")
         except quota.QuotaError as error:
-            if error.status != 401 or refreshed:
-                raise
-            record = quota.renew(current, self.request)
-            profile = self.request(USER_INFO, None, access=quota.decode(record)[1]["access_token"], method="GET")
+            if error.status == 401:
+                raise core.LocalError("当前访问令牌已失效，请在 Antigravity 官方客户端完成登录后重新扫描。") from None
+            raise
+        latest = self.store.read()
+        if not latest or fingerprint(latest) != stamp:
+            raise core.LocalError("扫描期间当前登录已改变，请重新扫描。")
+        record = latest
         identity = verified_profile(profile)
         known = next(((filename, saved) for filename, saved in records if saved.get("identity", {}).get("subject") == identity["subject"]), None)
         if known:

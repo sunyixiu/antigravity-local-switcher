@@ -1,4 +1,4 @@
-#define AppVersion "0.7.2"
+#define AppVersion "0.8.0"
 #define SourceRoot AddBackslash(SourcePath) + ".."
 #define DistRoot SourceRoot + "\dist\portable"
 #define OutputRoot SourceRoot + "\dist"
@@ -20,7 +20,7 @@ MinVersion=10.0
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 OutputDir={#OutputRoot}
-OutputBaseFilename=AntigravityLocalSwitcher-Setup-v0.7.2
+OutputBaseFilename=AntigravityLocalSwitcher-Setup-v0.8.0
 SetupIconFile={#SourceRoot}\assets\app-icon.ico
 UninstallDisplayIcon={app}\AntigravityLocalSwitcher.exe
 Compression=lzma2

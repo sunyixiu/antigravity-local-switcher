@@ -1,63 +1,65 @@
 # 安全、隐私与服务条款 | Security, privacy and service terms
 
-适用于 **Antigravity 本地账号切换器 / Antigravity Local Switcher**。这是独立的非官方 Windows 工具，不是 Google 产品或获批集成。
+适用于 Antigravity 本地账号切换器 / Antigravity Local Switcher **0.8.0**。独立非官方工具，不代表 Google。
 
-## 本地运行与隐私（中文）
+## 中文：本地与联网边界
 
-本版本不包含后门、隐蔽上传、遥测或远程控制功能。没有作者服务器，不向作者或其他第三方发送登录凭据、账号快照、项目文件、聊天记录。账号管理在本机完成；快照、恢复备份和额度缓存使用 Windows 当前用户 DPAPI 加密，存于 `%LOCALAPPDATA%\AntigravityLocalSwitcher`。卸载保留这些本机数据。
+账号管理、快照和额度缓存使用 Windows 当前用户 DPAPI 加密，保存在 `%LOCALAPPDATA%\AntigravityLocalSwitcher`。本版本没有后门、隐蔽上传、遥测、远程控制、作者服务器、远程字体、CDN、广告或自动下载执行代码。不把凭据、快照、项目或聊天内容上传给作者或第三方。
 
-界面仅监听 `127.0.0.1`，网页不会接收 access token 或 refresh token。修改操作核对 Host、Origin、HttpOnly / SameSite Cookie 和随机控制令牌。没有远程字体、CDN、广告、分析上报、自动下载执行代码或模型请求反代。
+界面仅连接本机 `127.0.0.1`，不接收 access token / refresh token。修改操作校验 Host、Origin、HttpOnly / SameSite 会话 Cookie 和随机控制令牌。
 
-**本地运行不等于完全离线。** 确认新账号身份、查询额度及刷新授权时，必要令牌只发送到固定允许的 Google HTTPS 接口，保留证书校验并拒绝重定向。“无上传”指没有隐蔽收集和向作者/第三方上传数据，不是说 Google 身份验证无需联网。
+**仅当前运行的官方 Antigravity 登录账号允许身份和额度查询。** 离线账号、客户端关闭时、未匹配登录不发起额度请求。手动、定时、恢复到期与切换对齐共享此规则。每次限频等待后重读凭据与进程状态，换号或关闭后停止后续请求；已发出的请求无法撤回，返回时换号的结果不保存。
 
-允许的服务域名：`www.googleapis.com`（身份确认）、`oauth2.googleapis.com`（刷新授权）、`cloudcode-pa.googleapis.com`、`daily-cloudcode-pa.googleapis.com`、`daily-cloudcode-pa.sandbox.googleapis.com`（额度）。系统配置的网络代理仍属于用户的网络信任边界。
+当前版本的应用流程不调用 OAuth 刷新接口，不用离线 refresh token 维持授权，不写入自行生成的新令牌。令牌续期交给官方客户端；工具读取官方更新并仅在可靠匹配同一账号时保存快照。未知授权需扫描确认，不使用未验证 JWT 声明证明账号身份。
 
-OAuth 桌面客户端配置从本机官方 Antigravity 安装中读取；源码与分发包不内置客户端 ID 或密钥，也不包含用户登录授权。仅兼容指纹匹配时使用，未知版本停止刷新。扫描只读取 `gemini:antigravity` 这一条凭据，不枚举浏览器或其他 Windows 登录；用户确认命名后才入库，保存前再次检查当前登录。
+身份查询使用 `www.googleapis.com`；额度查询使用 `cloudcode-pa.googleapis.com`、`daily-cloudcode-pa.googleapis.com`、`daily-cloudcode-pa.sandbox.googleapis.com` 固定允许的 HTTPS 路径，校验证书且拒绝重定向。系统代理仍属于用户网络信任边界。身份确认发送已有访问令牌，只用于当前登录的账号，确认前再次核对登录。
 
-**安全边界：** 以上是本版本实现说明，不是独立安全认证，也不是绝对安全保证。具有同一 Windows 用户权限的恶意软件仍可能访问凭据或调用 DPAPI。请从本仓库获取程序，不公开账号文件、原始接口数据、未脱敏日志或截图。
+**本地不等于离线。** 当前身份与额度请求仍由 Python 网络实现发出，不是借官方程序代发，不保证指纹一致或不可识别。
 
-## Google 服务条款（中文）
+## 中文：离线预计值与快照边界
 
-2026-10-08 核对的 [官方附加条款](https://antigravity.google/terms) 第 6 条禁止第三方工具访问服务，可能导致 Antigravity / Gemini CLI 账号暂停或终止。本工具的内部额度查询和 OAuth 刷新存在该风险；仅恢复本地登录快照是否允许没有单独澄清。串行查询、低频、加密和开源均不代表 Google 授权。企业订阅可能适用其他协议。
+离线额度到已知恢复时间可显示“100% · 预计已恢复”。这是根据缓存的恢复规则在本机计算，不是 Google 确认。原始百分比、查询时间、重置时间不被预计值覆盖；缺失字段保持未知，再次登录后以实际查询核对。账号在其他设备使用或规则变化可能影响准确性。
 
-安全问题请优先使用已启用的 GitHub 私密漏洞报告；否则先提交不含凭据和实际账号利用信息的描述。
+后台约每五秒检查登录区，工具控制的正常切换还会在退出后读取最终凭据。外部退出、崩溃或工具未运行期间不能保证捕捉瞬时变化。普通访问令牌更新保持账号授权匹配时自动同步；无法确认新的刷新授权归属时要求扫描。
+
+当前仅操作 `gemini:antigravity`，不枚举浏览器账号或其他 Windows 凭据。旧快照依赖刷新授权匹配，已验证的新快照可利用 Google subject 识别重复账号。删除操作移除所选快照、缓存及匹配恢复备份，保持官方客户端登录不变。卸载保留用户数据。
+
+这些是实现说明，不是独立安全认证或绝对安全保证。同一 Windows 用户权限的软件仍可能读取凭据或调用 DPAPI。切换写入检查 Windows 2560 字节容量，并核对写入；失败时尝试恢复并明确报告结果。
+
+## 中文：Google 服务条款
+
+2026-10-08 核对的 [Antigravity 附加条款](https://antigravity.google/terms) 第 6 条限制第三方工具访问服务，可能暂停或终止 Antigravity / Gemini CLI 访问。虽然 0.8.0 停止工具自行 OAuth 续期和离线查询，当前账号身份与额度访问仍有条款风险。仅本地恢复快照是否允许没有单独澄清。开源、低频和使用当前账号不代表官方许可。企业订阅可能适用其他协议。
+
+不要在公开 issue 上传账号文件、原始接口数据、凭据、未脱敏日志或截图。优先使用启用的 GitHub 私密漏洞报告；否则提交不包含凭据或实际账号利用信息的描述。
 
 ---
 
-# Security and service terms (English)
+## English: local execution and network boundary
 
-This is an independent Windows utility, not a Google product or an approved Antigravity integration.
+This independent Windows utility stores account snapshots and quota caches locally with current-user DPAPI encryption. No backdoor, covert uploads, telemetry, remote control, author-operated servers, ads, remote fonts/CDNs or automatic code-download execution. Account grants, snapshots, projects and chat histories are not uploaded to the author or third parties.
 
-## Local execution and privacy
+The UI uses only a loopback server and never receives access/refresh grants. Local actions validate Host, Origin, HttpOnly/SameSite cookies and a random control token.
 
-Account management and credential storage run locally. This version contains no backdoor, covert upload, telemetry or remote-control functionality. There is no author-operated server, and credentials, snapshots, project files and chat histories are not uploaded to the author or other third parties.
+Only the matched account in the running official Antigravity client is eligible for identity and quota queries. Manual/scheduled/reset-time/switch-alignment requests share that boundary. Each dispatch rechecks state after request pacing. Subsequent requests stop when the login changes or the client closes; already-sent requests cannot be recalled, and results from a changed account are discarded.
 
-Identity verification, quota queries and OAuth refresh connect directly to allowlisted Google HTTPS endpoints and send the tokens required by those protocols. Local execution does not mean offline operation. "No uploads" refers to the absence of covert collection and transfers to the author or third parties, not the absence of Google authentication requests. There are no ads, remote fonts/CDNs, automatic code-download execution, or model-request proxies.
+The application flow does not call OAuth refresh or keep inactive grants alive. The official client owns renewal. The utility reads its updates and synchronizes only reliably matched snapshots. Unknown grants require explicit scanning, never identity inference from unverified JWT claims or the last selected account.
 
-These are implementation statements, not an independent security certification or an absolute guarantee. Review the source, obtain builds from this repository, and protect the Windows account. Software running as the same Windows user can still access the vault or DPAPI; service-terms risks remain separate.
+Identity queries go to fixed allowlisted HTTPS paths on www.googleapis.com; quota requests use cloudcode-pa.googleapis.com, daily-cloudcode-pa.googleapis.com and daily-cloudcode-pa.sandbox.googleapis.com. TLS certificate checks remain enabled and redirects are rejected. System proxies remain part of the user's trust boundary.
 
-## Google service terms
+Local execution is not offline operation. Current-account requests still originate from this tool's Python network implementation, not from the official client. Matching its complete network fingerprint or avoiding identification is not guaranteed.
 
-The [Google Antigravity Additional Terms of Service](https://antigravity.google/terms), checked on 2026-10-08, clause 6, prohibit using third-party software, tools or services to access the Service and state that this may lead to Antigravity and/or Gemini CLI account suspension or termination. Enterprise subscriptions may be governed by different applicable agreements.
+## English: estimates, synchronization and limitations
 
-This application directly calls Antigravity internal quota endpoints and refreshes OAuth grants. Those functions carry a material service-terms risk even without proxying model requests. The terms do not separately clarify whether restoring local login snapshots is permitted. Open source publication and this MIT license do not grant permission from Google or override its terms. This repository makes no claim of being compliant or safe from enforcement. It does not provide a model-request proxy or alter device identifiers to evade enforcement.
+Offline recovery can display estimated 100% at a cached reset deadline, without a network request. Confirmed percentages, query timestamps and reset times remain unchanged in encrypted storage. Unknown data is not invented. Real results replace projections on the next login. Other-device use and provider rule changes can invalidate estimates.
 
-## Credential boundary
+The backend observes credentials about every five seconds. Controlled switches also capture final credentials after normal exit. External closes, crashes and periods when this utility is not running cannot guarantee every transition is observed. New refresh grants that cannot be reliably matched require scanning.
 
-- The current Windows credential target is `gemini:antigravity`. Scanning reads that current login; it does not enumerate all browser accounts or other Windows credentials.
-- For an unmatched login, scanning uses the existing access token with Google's user-info endpoint to confirm email/subject, with token refresh when necessary. Scan candidates remain in backend memory until the user names and confirms enrollment. The current login is checked again before saving.
-- Exact refresh-grant matches or previously verified Google subject metadata prevent duplicate enrollment. Older snapshots without subject metadata primarily match by their refresh grant. Independently reauthorizing an older account with a new grant can require manual review/update.
-- Persistent account snapshots, recovery snapshots and quota cache files use Windows DPAPI for the current Windows user. The browser UI receives safe account/scan status and quota projections, never access tokens or refresh tokens.
-- Same-user malware can still read the Windows vault or invoke DPAPI. Encryption is not isolation from software running as the same user.
-- The runtime directory is `%LOCALAPPDATA%\AntigravityLocalSwitcher`, separate from this repository and the installation directory. Do not publish it. Uninstall leaves this directory in place.
-- OAuth refresh reads the compatible desktop client configuration from the locally installed official Antigravity binary. No client ID or client secret is embedded in the source or release. A SHA-256 compatibility fingerprint selects the verified pair when multiple clients are present; unrecognized versions stop refresh. This installed-client configuration is not a user's Google access/refresh token and does not independently grant account access. No additional scopes are requested.
+Only the gemini:antigravity credential is read; browser and unrelated Windows logins are not enumerated. Deletion removes the selected snapshot/cache and matching recovery backup, without signing out the official client. Uninstall preserves local data.
 
-## Network and local control
+Implementation statements are not independent security certification or an absolute guarantee. Same-user malware can still access credentials or DPAPI. Native writes check Windows' 2560-byte limit, read back for verification and attempt rollback on failure.
 
-Google requests use a fixed HTTPS endpoint allowlist and reject redirects. Quota requests share a serialized rate limiter. Account refreshes are sequential, and HTTP 429 pauses the batch and preserves a cooldown. These are ordinary load controls, not a guarantee about Google's detection or policy enforcement.
+## English: service terms and reporting
 
-The local web server binds only to `127.0.0.1`. State-changing requests validate Host, Origin, an HttpOnly SameSite cookie and a random control token. Credentials do not cross the local browser boundary. The application does not use remote fonts, analytics, CDNs or a vendor-operated credential service.
+Clause 6 of the Antigravity Additional Terms, checked 2026-10-08, restricts third-party service access and describes potential Antigravity / Gemini CLI suspension or termination. Version 0.8.0 removes utility-driven OAuth renewal and inactive-account queries, but current-account identity and quota requests still carry service-terms risks. Local snapshot restoration is not separately clarified. Open source, low frequency and querying only the current account do not grant Google permission. Enterprise agreements may differ.
 
-## Reporting issues
-
-Do not attach account snapshots, recovery files, OAuth grants, raw provider traffic, unredacted logs or personal screenshots to public issues. Use synthetic examples. For a security issue, use GitHub's private vulnerability reporting if enabled; otherwise describe the issue without disclosing credentials or a live exploit against an account.
+Do not attach credentials, snapshots, raw provider traffic, unredacted logs or personal screenshots to public issues. Use GitHub private vulnerability reporting when enabled, or begin with a credential-free description.

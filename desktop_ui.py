@@ -25,8 +25,10 @@ import auto_refresh
 import instance_control
 import account_discovery
 import current_login
+import active_session
+import quota_projection
 
-VERSION = "0.7.2"
+VERSION = "0.8.0"
 
 
 def demo_state():
@@ -40,17 +42,19 @@ def demo_state():
         for (family, window), percentage in zip([("gemini", "weekly"), ("gemini", "5h"), ("thirdparty", "weekly"), ("thirdparty", "5h")], values):
             duration = (172800 if family == "gemini" else 302400) if window == "weekly" else 6240
             groups.append({"family": family, "window": window, "percentage": percentage, "reset": quota.datetime.fromtimestamp(now + duration, quota.timezone.utc).isoformat(), "group": family, "id": family + window, "name": window})
-        entries.append({"id": f"{index + 1:032x}.agprofile", "label": label, "recent": index == 0, "current": index == 1,
+        entries.append({"id": f"{index + 1:032x}.agprofile", "label": label, "recent": index == 0, "current": index == 1, "quota_eligible": index == 1,
                         "quota": {"groups": groups, "models": [], "updated": now, "status": "已更新"}})
     # One expired demo window illustrates pending confirmation, without claiming a full reset.
     entries[0]["quota"]["updated"] = now - 120
     entries[0]["quota"]["groups"][1]["reset"] = quota.datetime.fromtimestamp(now - 30, quota.timezone.utc).isoformat()
+    for entry in entries:
+        entry["quota"] = quota_projection.project(entry["quota"], now, not entry["quota_eligible"])
     return {"version": VERSION, "demo": True, "busy": False, "progress": "", "profiles": entries,
-            "auto_refresh_hours": 4, "next_auto_at": now + 4 * 3600, "cooldown_remaining": 0, "current_login": {"status": "matched", "id": entries[1]["id"], "label": entries[1]["label"]}}
+            "auto_refresh_hours": 4, "next_auto_at": now + 4 * 3600, "cooldown_remaining": 0, "current_login": {"status": "matched", "id": entries[1]["id"], "label": entries[1]["label"], "running": True, "quota_eligible": True}}
 
 
 class Application:
-    def __init__(self, demo=False, directory=None, store=None, request_sender=None, clock=None, wait=None, wall_clock=None):
+    def __init__(self, demo=False, directory=None, store=None, request_sender=None, clock=None, wait=None, wall_clock=None, running_check=None):
         self.demo = demo
         self.lock = threading.RLock()
         self.busy = False
@@ -68,12 +72,14 @@ class Application:
         self.active_refresh_id = None
         self.switch_in_progress = False
         self.current_login = current_login.CurrentLogin()
+        self.running_check = running_check if running_check is not None else lambda: bool(core.antigravity_pids())
         if not demo:
             self.directory = Path(directory) if directory is not None else Path(os.environ["LOCALAPPDATA"]) / "AntigravityLocalSwitcher"
             self.vault = core.Vault(self.directory)
             self.store = store if store is not None else core.NativeStore()
             self.switcher = core.Switcher(self.store, self.vault)
-            self.discovery = account_discovery.Discovery(self.store, self.vault, self.requests.send, self.clock)
+            self.discovery = account_discovery.Discovery(self.store, self.vault, self.scan_request, self.clock)
+            self.session = active_session.ActiveSession(self.store, self.vault, self.current_login, self.running_check, self.clock)
             self.auto = auto_refresh.Plan(self.directory, self.wall_clock)
             self.requests.cooldown_until = self.clock() + max(0, self.auto.cooldown_until - self.wall_clock())
             if self.auto.error:
@@ -115,16 +121,75 @@ class Application:
                 cache = self.cached(filename)
                 profiles.append({"id": filename, "label": label, "recent": self.switcher.active == filename, "quota": cache,
                                  "refresh_after": self.account_cooldown(filename)})
-            current = ({"status": "switching", "message": "正在切换登录，完成后核对当前账号…"} if self.switch_in_progress else
-                       self.current_login.resolve(self.store, self.vault, [p["id"] for p in profiles], self.discovery.verified_binding))
+            current = ({"status": "switching", "message": "正在切换登录，完成后核对当前账号…", "running": False, "quota_eligible": False}
+                       if self.switch_in_progress else self.session.observe(self.discovery.verified_binding))
             for profile in profiles:
                 profile["current"] = current.get("id") == profile["id"] and current["status"] == "matched"
-                if profile["current"]:
-                    current["label"] = profile["label"]
+                profile["quota_eligible"] = profile["current"] and current.get("quota_eligible", False)
+                profile["quota"] = quota_projection.project(profile["quota"], self.wall_clock(), not profile["quota_eligible"])
             return {"version": VERSION, "demo": False, "busy": self.busy, "progress": self.progress, "profiles": profiles,
                     "refreshing_ids": list(self.refreshing_ids), "active_refresh_id": self.active_refresh_id,
                     "cooldown_remaining": self.requests.remaining(), "auto_refresh_hours": self.auto.hours,
                     "next_auto_at": self.auto.next_run, "scan": dict(self.discovery.view), "current_login": current}
+
+    def scan_request(self, url, payload, **options):
+        # Discovery may verify only the current native login. Never renew OAuth.
+        if url != quota.USER_INFO_URL:
+            raise quota.QueryStopped("扫描只允许查询当前账号身份，不执行 OAuth 续期。")
+        def check():
+            if not self.running_check():
+                raise quota.QueryStopped("请先打开 Antigravity 官方客户端完成登录，再扫描账号。")
+            record = self.store.read()
+            if not record:
+                raise quota.QueryStopped("当前登录已退出，请重新登录后扫描。")
+            _, token, _ = quota.decode(record)
+            if token.get("access_token") != options.get("access"):
+                raise quota.QueryStopped("当前登录授权已改变，请重新扫描。")
+        return self.requests.send(url, payload, before_send=check, **options)
+
+    def eligible_login(self):
+        return self.session.observe(self.discovery.verified_binding)
+
+    def query_current(self, filename):
+        """One guarded query; no snapshot-only requests and no OAuth refresh."""
+        self.selected(filename)
+        with self.lock:
+            self.session.guard(filename, self.discovery.verified_binding)
+            record = self.session.record
+            self.last_attempt[filename] = self.clock()
+            self.active_refresh_id = filename
+            self.session.pending = None
+            try:
+                self.auto.mark_attempt(filename, self.cached(filename))
+            except core.LocalError:
+                self.diagnose("schedule.preference_write_failed")
+        def request(url, payload, **options):
+            if url not in {quota.CONTEXT_URL, *quota.GROUP_URLS, *quota.MODEL_URLS}:
+                raise quota.QueryStopped("额度查询不执行登录或授权刷新。")
+            def check():
+                with self.lock:
+                    return self.session.guard(filename, self.discovery.verified_binding)
+            return self.requests.send(url, payload, before_send=check, **options)
+        try:
+            result = quota.query(record, request=request, allow_renew=False)
+            with self.lock:
+                self.session.guard(filename, self.discovery.verified_binding)
+                self.vault.write(filename + ".quota", result)
+            return True
+        except quota.QueryStopped:
+            raise
+        except (core.LocalError, quota.QuotaError, OSError) as error:
+            with self.lock:
+                previous = self.cached(filename)
+                previous["status"] = "查询失败；保留上次结果"
+                previous["error"] = str(error) if isinstance(error, (core.LocalError, quota.QuotaError)) else "本地缓存保存失败。"
+                if isinstance(error, quota.OfficialRefreshRequired):
+                    self.session.blocked_token = self.session.token_stamp(self.session.record or record)
+                    previous["needs_official_refresh"] = True
+                elif isinstance(error, (core.LocalError, OSError)) or error.status in (400, 401, 403):
+                    previous["auto_paused"] = True
+                self.vault.write(filename + ".quota", previous)
+            return False
 
     def account_cooldown(self, filename):
         attempted = self.last_attempt.get(filename)
@@ -147,6 +212,8 @@ class Application:
             if action == "quit":
                 if self.busy:
                     raise core.LocalError("当前操作尚未完成，请完成后再退出工具。")
+                if not self.demo:
+                    self.session.observe(self.discovery.verified_binding)
                 self.shutdown_requested = True
                 self.diagnose("app.quit_requested")
                 return "工具已退出。需要使用时重新打开 Start.cmd。"
@@ -157,6 +224,7 @@ class Application:
             if action == "scan":
                 if self.requests.remaining():
                     raise core.LocalError("Google 查询正在冷却，请稍后再扫描。")
+                self.session.observe(self.discovery.verified_binding)
                 self.busy = True
                 self.progress = "正在扫描 Antigravity 当前登录账号…"
                 self.discovery.view = {"status": "scanning", "message": self.progress}
@@ -202,25 +270,16 @@ class Application:
                 return "账号已重命名，登录快照和额度记录已保留。"
             if action == "auto-refresh":
                 self.auto.configure(payload.get("hours"))
-                return "自动查询已关闭；仍可手动刷新。" if not self.auto.hours else f"已设置每 {self.auto.hours} 小时自动查询，重置到期后也会排队确认。"
+                return "自动查询已关闭；仍可手动刷新。" if not self.auto.hours else f"已设置每 {self.auto.hours} 小时查询当前账号；其他账号仅本地推算恢复。"
             if action in ("refresh", "refresh-one"):
-                cooldown = self.requests.remaining()
-                if cooldown:
-                    raise core.LocalError(f"Google 查询正在冷却，请 {cooldown} 秒后再刷新。")
-                if action == "refresh-one":
-                    self.selected(payload.get("id"))
-                    filenames = [payload["id"]]
-                else:
-                    filenames = [filename for filename, _ in self.vault.profiles() if re.fullmatch(r"[0-9a-f]{32}\.agprofile", filename)]
-                if not filenames:
-                    raise core.LocalError("请先保存至少一个账号。")
-                eligible = [filename for filename in filenames if self.account_cooldown(filename) == 0]
-                skipped = len(filenames) - len(eligible)
-                if not eligible:
-                    remaining = min(self.account_cooldown(filename) for filename in filenames)
-                    raise core.LocalError(f"这些账号刚刷新过，请 {remaining} 秒后再刷新。")
-                self.start_refresh(eligible, skipped)
-                return "已开始刷新这个账号的额度。" if action == "refresh-one" else "已开始逐个刷新账号；近期已查询的账号保留缓存。"
+                current = self.eligible_login()
+                if not current.get("quota_eligible"):
+                    raise core.LocalError("只查询正在运行的 Antigravity 当前账号；请先打开官方客户端并确认登录。")
+                filename = current["id"]
+                if action == "refresh-one" and payload.get("id") != filename:
+                    raise core.LocalError("该账号未在当前客户端登录，仅显示本地缓存和预计恢复额度；切换后再查询。")
+                self.start_refresh([filename])
+                return "已开始查询当前登录账号，其他账号不发起网络请求。"
             if action in ("save", "update"):
                 filename = payload.get("id") if action == "update" else None
                 request_id = payload.get("request_id") if action == "save" else None
@@ -254,9 +313,22 @@ class Application:
             if action == "switch":
                 self.selected(payload.get("id"))
             self.busy = True
-            self.switch_in_progress = True
-            self.progress = "正在请求 Antigravity 正常退出并切换账号…"
+            self.progress = "正在对齐当前账号快照及额度…"
         try:
+            # Query outgoing quota only while that account is still active.
+            with self.lock:
+                outgoing = self.eligible_login()
+            if (self.auto.hours and outgoing.get("quota_eligible") and not self.requests.remaining()
+                    and not self.account_cooldown(outgoing["id"])
+                    and self.session.blocked_token is None):
+                try:
+                    self.query_current(outgoing["id"])
+                except (core.LocalError, quota.QuotaError, OSError):
+                    self.diagnose("account.exit_quota_not_confirmed")
+            with self.lock:
+                self.session.observe(self.discovery.verified_binding)
+                self.switch_in_progress = True
+                self.progress = "正在请求 Antigravity 正常退出并切换账号…"
             if action == "switch":
                 self.switcher.switch(payload["id"])
             else:
@@ -272,14 +344,23 @@ class Application:
             with self.lock:
                 self.busy = False
                 self.switch_in_progress = False
+                self.active_refresh_id = None
+                self.session.observe(self.discovery.verified_binding)
                 self.progress = ""
 
     def start_refresh(self, filenames, skipped=0, reason="手动刷新"):
-        # Caller owns self.lock; every source shares one serialized refresh job.
+        current = self.eligible_login()
+        if len(filenames) != 1 or not current.get("quota_eligible") or filenames[0] != current["id"]:
+            raise core.LocalError("只允许查询当前登录的一个账号；其他账号使用本地缓存。")
+        filename = filenames[0]
+        cooldown = max(self.requests.remaining(), self.account_cooldown(filename))
+        if cooldown:
+            raise core.LocalError(f"请 {cooldown} 秒后再刷新当前账号。")
+        self.session.pending = None
         self.busy = True
-        self.refreshing_ids = list(filenames)
-        self.progress = reason + "：正在按顺序查询额度…"
-        threading.Thread(target=self.refresh_all, args=(filenames, skipped), daemon=True).start()
+        self.refreshing_ids = [filename]
+        self.progress = reason + "：正在查询当前账号，其他账号使用本地缓存…"
+        threading.Thread(target=self.refresh_all, args=([filename],), daemon=True).start()
 
     def scan_current(self):
         try:
@@ -303,78 +384,52 @@ class Application:
 
     def scheduler_tick(self):
         with self.lock:
-            if self.demo or self.shutdown_requested or self.busy or not self.auto.hours or self.requests.remaining():
+            if self.demo or self.shutdown_requested or self.switch_in_progress:
                 return
-            filenames = [filename for filename, _ in self.vault.profiles() if re.fullmatch(r"[0-9a-f]{32}\.agprofile", filename)
-                         and not self.cached(filename).get("auto_paused")]
+            current = self.eligible_login()  # Snapshot sync runs even when auto queries are off.
+            if self.busy or not self.auto.hours or self.requests.remaining() or not current.get("quota_eligible"):
+                return
+            filename = current["id"]
+            if self.session.blocked_token is not None or (self.cached(filename).get("auto_paused") and not self.session.pending):
+                return
+            pending = self.session.pending
+            if pending and self.clock() < pending[1]:
+                return
+            login_due = pending is not None and pending[0] == filename
             periodic = self.wall_clock() >= self.auto.next_run
+            reset_due = bool(self.auto.due_keys(filename, self.cached(filename)))
+            if not (login_due or periodic or reset_due) or self.account_cooldown(filename):
+                return
             if periodic:
-                # Sleep/resume or a restart catches up once, rather than replaying every missed interval.
                 self.auto.next_run = self.wall_clock() + self.auto.hours * 3600
                 self.auto.save()
-                wanted = filenames
-            else:
-                wanted = [filename for filename in filenames if self.auto.due_keys(filename, self.cached(filename))]
-            eligible = [filename for filename in wanted if self.account_cooldown(filename) == 0]
-            if eligible:
-                self.start_refresh(eligible, len(wanted) - len(eligible), "定时自动查询" if periodic else "重置到期确认")
+            self.start_refresh([filename], reason="登录后对齐" if login_due else "定时查询当前账号" if periodic else "当前账号重置确认")
 
     def refresh_all(self, filenames, skipped=0):
-        completed = 0
-        throttled = False
         try:
-            for index, filename in enumerate(filenames):
-                if index:
-                    with self.lock:
-                        self.active_refresh_id = None
-                        self.progress = f"账号之间间隔 {int(refresh_policy.ACCOUNT_INTERVAL)} 秒，稍后查询下一个…"
-                    self.wait(refresh_policy.ACCOUNT_INTERVAL)
-                with self.lock:
-                    self.progress = f"正在查询账号 {index + 1} / {len(filenames)}…"
-                    self.active_refresh_id = filename
-                    self.last_attempt[filename] = self.clock()
-                    try:
-                        self.auto.mark_attempt(filename, self.cached(filename))
-                    except core.LocalError:
-                        self.diagnose("schedule.preference_write_failed")
-                try:
-                    with self.lock:
-                        saved = self.selected(filename)
-                    def renewed(record):
-                        with self.lock:
-                            self.vault.save(saved["label"], record, filename, identity=saved.get("identity"))
-                            self.current_login.rotated(filename, saved["credential"], record)
-                            saved["credential"] = record
-                    result = quota.query(saved["credential"], request=self.requests.send, on_renew=renewed)
-                    with self.lock:
-                        self.vault.write(filename + ".quota", result)
-                    completed += 1
-                except (core.LocalError, quota.QuotaError, OSError) as error:
-                    with self.lock:
-                        previous = self.cached(filename)
-                        previous["status"] = "查询失败；旧数据" if previous.get("models") or previous.get("groups") else "查询失败"
-                        previous["error"] = str(error) if isinstance(error, (core.LocalError, quota.QuotaError)) else "本地快照读写失败。"
-                        if isinstance(error, (core.LocalError, OSError)) or (isinstance(error, quota.QuotaError) and error.status in (400, 401, 403)):
-                            previous["auto_paused"] = True
-                        self.vault.write(filename + ".quota", previous)
-                with self.lock:
-                    self.refreshing_ids.remove(filename)
-                    self.active_refresh_id = None
-                    if self.requests.remaining():
-                        throttled = True
-                        self.auto.cooldown_until = self.wall_clock() + self.requests.remaining()
-                        try:
-                            self.auto.save()
-                        except core.LocalError:
-                            self.diagnose("schedule.cooldown_write_failed")
-                        self.progress = f"Google 提示查询限流，本轮已暂停；{self.requests.remaining()} 秒后可再刷新。"
-                        break
-            if not throttled:
-                with self.lock:
-                    self.progress = f"本轮已完成：成功刷新 {completed} / {len(filenames)} 个账号" + (f"，跳过 {skipped} 个近期已查询账号。" if skipped else "。")
-        except Exception:
+            if len(filenames) != 1:
+                raise quota.QueryStopped("已取消多账号轮询，只查询当前登录账号。")
+            success = self.query_current(filenames[0])
             with self.lock:
-                self.progress = "本地查询未完成，请检查快照或稍后重试。"
+                if self.requests.remaining():
+                    self.auto.cooldown_until = self.wall_clock() + self.requests.remaining()
+                    try:
+                        self.auto.save()
+                    except core.LocalError:
+                        self.diagnose("schedule.cooldown_write_failed")
+                    self.progress = f"Google 提示查询限流，本轮已暂停；{self.requests.remaining()} 秒后可重试当前账号。"
+                else:
+                    self.progress = "当前账号额度已更新；其他账号使用本地缓存及预计恢复值。" if success else "当前账号未更新，保留上次结果；请查看卡片提示。"
+        except quota.OfficialRefreshRequired as error:
+            self.progress = str(error)
+            with self.lock:
+                if self.session.record:
+                    self.session.blocked_token = self.session.token_stamp(self.session.record)
+        except quota.QueryStopped as error:
+            self.progress = str(error)
+        except Exception as error:
+            self.diagnose("quota.current_query_failed", error)
+            self.progress = "当前账号查询未完成，已有缓存保留。"
         finally:
             with self.lock:
                 self.busy = False
@@ -611,7 +666,7 @@ def run(demo=False, open_browser=True):
                         server.application.scheduler_tick()
                     except Exception:
                         server.application.diagnose("schedule.tick_failed")
-                    time.sleep(15)
+                    time.sleep(5)
             threading.Thread(target=scheduled_queries, daemon=True).start()
         if open_browser:
             open_window(server.origin + "/")

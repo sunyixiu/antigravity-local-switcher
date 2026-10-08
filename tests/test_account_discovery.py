@@ -152,21 +152,20 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIsNone(self.service.pending)
         self.assertEqual(self.vault.profiles(), [])
 
-    def test_expired_access_token_is_refreshed_only_in_candidate(self):
+    def test_expired_access_token_waits_for_official_client(self):
         record = copy.deepcopy(self.store.record)
         value, token, _ = quota.decode(record)
         token['expiry_timestamp'] = time.time() - 60
         record['blob'] = base64.b64encode(json.dumps(value).encode()).decode()
         self.store.record = record
-        self.service.scan()
-        self.assertEqual([c[0] for c in self.calls], [quota.TOKEN_URL, quota.USER_INFO_URL])
+        with self.assertRaises(core.LocalError):
+            self.service.scan()
+        self.assertEqual(self.calls, [])
         self.assertEqual(self.vault.profiles(), [])
-        filename = self.confirm()
-        self.assertEqual(quota.decode(self.vault.load(filename)['credential'])[1]['access_token'], 'synthetic-renewed')
         self.assertEqual(self.store.record, record)
 
     def test_backend_exposes_bounded_scan_view_without_credential_record(self):
-        app = desktop_ui.Application(directory=self.directory, store=self.store, request_sender=self.request, wait=lambda _: None)
+        app = desktop_ui.Application(directory=self.directory, store=self.store, running_check=lambda: True, request_sender=self.request, wait=lambda _: None)
         app.vault.protector = SyntheticProtector()
         app.switcher = SyntheticSwitcher()
         app.action('scan', {})

@@ -43,13 +43,16 @@ class RefreshScheduleTests(unittest.TestCase):
         self.clock = Clock()
         self.calls = []
         self.native = SyntheticStore()
+        self.running = True
         self.app = desktop_ui.Application(directory=self.directory, store=self.native,
-                                          request_sender=self.sender, clock=lambda: self.clock.mono,
+                                          running_check=lambda: self.running, request_sender=self.sender, clock=lambda: self.clock.mono,
                                           wall_clock=lambda: self.clock.wall, wait=self.clock.wait)
         self.app.vault.protector = SyntheticProtector()
         self.app.switcher = SyntheticSwitcher()
         self.a = self.app.vault.save('Synthetic A', credential('A'))
         self.b = self.app.vault.save('Synthetic B', credential('B'))
+        self.app.eligible_login()
+        self.app.session.pending = None
 
     def tearDown(self):
         self.join_job()
@@ -72,7 +75,7 @@ class RefreshScheduleTests(unittest.TestCase):
                             'reset': datetime.fromtimestamp(self.clock.wall + 60, timezone.utc).isoformat()}],
                 'models': [], 'updated': self.clock.wall, 'status': '已更新'}
 
-    def test_single_refresh_queries_only_selected_snapshot_without_native_access(self):
+    def test_single_refresh_reads_only_actual_current_login(self):
         untouched = (self.directory / self.b).read_bytes()
         self.app.action('refresh-one', {'id': self.a})
         self.join_job()
@@ -81,16 +84,16 @@ class RefreshScheduleTests(unittest.TestCase):
         self.assertTrue(self.app.cached(self.a)['groups'])
         self.assertEqual(self.app.cached(self.b), {})
         self.assertEqual((self.directory / self.b).read_bytes(), untouched)
-        self.assertEqual(self.native.reads, 0)
+        self.assertGreater(self.native.reads, 0)
 
-    def test_all_refresh_serializes_requests_and_account_gap(self):
+    def test_refresh_legacy_route_now_queries_only_current_account(self):
         self.app.action('refresh', {})
         self.join_job()
-        self.assertEqual(len(self.calls), 6)
+        self.assertEqual(len(self.calls), 3)
         starts = [entry[0] for entry in self.calls]
         self.assertTrue(all(right - left >= refresh_policy.REQUEST_INTERVAL for left, right in zip(starts, starts[1:])))
-        self.assertGreaterEqual(starts[3] - starts[2], refresh_policy.ACCOUNT_INTERVAL)
-        self.assertNotEqual(self.calls[0][2], self.calls[3][2])
+        self.assertEqual({access for _, _, access in self.calls}, {'synthetic-access-A'})
+        self.assertEqual(self.app.cached(self.b), {})
 
     def test_repeat_single_refresh_respects_cooldown(self):
         self.app.action('refresh-one', {'id': self.a})
@@ -120,15 +123,14 @@ class RefreshScheduleTests(unittest.TestCase):
         finally:
             release.set()
 
-    def test_429_stops_batch_and_honors_retry_after(self):
+    def test_429_pauses_current_query_and_never_visits_offline_accounts(self):
         self.app.requests.sender = lambda *args, **kwargs: (_ for _ in ()).throw(quota.QuotaError('Synthetic throttle', 429, 120))
         self.app.action('refresh', {})
         self.join_job()
-        queried = [filename for filename in (self.a, self.b) if self.app.cached(filename)]
-        self.assertEqual(len(queried), 1)
+        self.assertEqual(self.app.cached(self.b), {})
         self.assertEqual(self.app.requests.remaining(), 120)
         with self.assertRaises(core.LocalError):
-            self.app.action('refresh-one', {'id': self.b})
+            self.app.action('refresh-one', {'id': self.a})
         self.assertIn('本轮已暂停', self.app.progress)
 
     def test_default_four_hours_and_three_hour_preference_survive_restart(self):
@@ -163,7 +165,7 @@ class RefreshScheduleTests(unittest.TestCase):
         self.app.scheduler_tick()
         self.join_job()
         count = len(self.calls)
-        self.assertEqual(count, 6)
+        self.assertEqual(count, 3)
         self.app.scheduler_tick()
         self.assertFalse(self.app.busy)
         self.assertEqual(len(self.calls), count)
@@ -218,7 +220,7 @@ class RefreshScheduleTests(unittest.TestCase):
         self.clock.advance(5 * 3600)
         with patch.object(self.app, 'start_refresh') as queue:
             self.app.scheduler_tick()
-            self.assertEqual(queue.call_args.args[0], [self.b])
+            queue.assert_not_called()
         self.app.action('refresh-one', {'id': self.a})
         self.join_job()
         self.assertFalse(self.app.cached(self.a).get('auto_paused', False))
